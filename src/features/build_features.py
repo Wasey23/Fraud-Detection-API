@@ -17,11 +17,11 @@ class FeatureEnricher:
         """Applies pre-calculated fraud probabilities to categorical features"""
         new_features = {}
         for col, mapping in self.target_encode_maps.items():
-            new_col_name = f"{col}_target_enc"
+            if col in df.columns:
+                new_col_name = f"{col}_target_enc"
+                global_mean = mapping.get('global_mean', 0)
 
-            global_mean = mapping.get('global_mean', 0)
-
-            new_features[new_col_name] = df[col].map(mapping).fillna(global_mean)
+                new_features[new_col_name] = df[col].map(mapping).fillna(global_mean)
 
         return pd.DataFrame(new_features, index=df.index)
 
