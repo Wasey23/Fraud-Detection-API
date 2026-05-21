@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  # The FastAPI Application
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+    networks:
+      - fraud-net
+
+  # The Redis In-Memory Database
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
+    networks:
+      - fraud-net
+
+networks:
+  fraud-net:
+    driver: bridge
