@@ -1,67 +1,78 @@
 import pandas as pd
-from src.features.redis_client import get_redis_client
+import redis
+import os
+import pickle
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class FeatureEnricher:
-    def __init__(self):
-        self.redis = get_redis_client()
-        self.target_encode_maps = {}
+    """
+    Production-ready feature engineering pipeline.
+    Encapsulates time engineering, Redis-based velocity, and target encoding.
+    """
 
-    def get_card_velocity(self, card_id, window_seconds=600):
-        """
-        Uses Redis to track transaction count per card over a sliding window.
-        window_seconds defaults to 600 (10 minutes).
-        """
-        key = f"velocity:card:{card_id}"
+    def __init__(self, mapping_path="src/models/saved_models/target_encode_maps.pkl"):
+        # 1. Redis Configuration
+        self.redis_host = os.getenv("REDIS_HOST", "localhost")
+        self.redis_port = int(os.getenv("REDIS_PORT", 6379))
+        self.redis_available = False
 
-        # INCR: Atomic operation to increment the counter for this card
-        count = self.redis.incr(key)
+        try:
+            self.redis_client = redis.Redis(host=self.redis_host, port=self.redis_port, db=0)
+            self.redis_client.ping()
+            self.redis_available = True
+            logger.info("FeatureEnricher: Redis connection established.")
+        except Exception:
+            logger.warning("FeatureEnricher: Redis unavailable. Fallback to velocity=0.")
 
-        # EXPIRE: Set the TTL (Time-To-Live) for this key
-        # We only set it if it is the first transaction (count == 1)
-        if count == 1:
-            self.redis.expire(key, window_seconds)
+        # 2. Load Target Encoding Mappings
+        try:
+            with open(mapping_path, "rb") as f:
+                self.target_maps = pickle.load(f)
+            logger.info(f"FeatureEnricher: Loaded target encoding maps from {mapping_path}")
+        except FileNotFoundError:
+            logger.warning("FeatureEnricher: Target encoding maps not found. Encoding will be skipped.")
+            self.target_maps = {}
 
-        return count
+    def add_time_features(self, df):
+        df = df.copy()
+        df['hour_of_day'] = (df['TransactionDT'] // 3600) % 24
+        df['day_of_week'] = (df['TransactionDT'] // (3600 * 24)) % 7
+        return df
 
-    def engineer_time_features(self, df):
-        """making cyclical time features"""
-        new_features = {}
-
-        new_features['hour_of_day'] = (df['TransactionDT'] // 3600) % 24
-        new_features['day_of_week'] = (df['TransactionDT'] // (3600 * 24)) % 7
-
-        return pd.DataFrame(new_features, index=df.index)
+    def get_velocity(self, card_id):
+        if not self.redis_available:
+            return 0
+        try:
+            val = self.redis_client.get(f"velocity_{card_id}")
+            return int(val) if val else 0
+        except Exception:
+            return 0
 
     def apply_target_encoding(self, df):
-        """Applies pre-calculated fraud probabilities to categorical features"""
-        new_features = {}
-        for col, mapping in self.target_encode_maps.items():
+        """
+        Applies pre-calculated target encoding mappings to categorical features.
+        """
+        df = df.copy()
+        for col, mapping in self.target_maps.items():
             if col in df.columns:
-                new_col_name = f"{col}_target_enc"
-                global_mean = mapping.get('global_mean', 0)
-
-                new_features[new_col_name] = df[col].map(mapping).fillna(global_mean)
-
-        return pd.DataFrame(new_features, index=df.index)
+                # Map the categories to their pre-calculated values.
+                # Fill unknown categories with 0 to prevent crashes.
+                df[col] = df[col].map(mapping).fillna(0)
+        return df
 
     def build_all_features(self, df):
-        '''Orchestrates feature engineering and safely concatenates to prevent fragmentation'''
-        # 1. Initialize: Work on a copy to preserve the integrity of the original input
-        processed_df = df.copy()
+        """
+        Orchestrator for all feature engineering steps.
+        """
+        # 1. Apply Time Features
+        df = self.add_time_features(df)
 
-        # 2. Generate components
-        time_features_df = self.engineer_time_features(df)
-        encoded_features_df = self.apply_target_encoding(df)
+        # 2. Apply Redis Velocity Features
+        df['card1_velocity_10min'] = df['card1'].apply(self.get_velocity)
 
-        # 3. Combine: Concatenate all features into one unified object
-        # We use a list of dataframes to combine them simultaneously
-        final_df = pd.concat([processed_df, time_features_df, encoded_features_df], axis=1)
+        # 3. Apply Target Encoding
+        df = self.apply_target_encoding(df)
 
-        # 4. Integrate: Add velocity features directly to the unified final_df
-        # This ensures your final output contains every single feature we engineered
-        final_df['card1_velocity_10min'] = df['card1'].apply(
-        lambda x: self.get_card_velocity(x)
-        )
-
-        # 5. Exit: The single, authoritative return point
-        return final_df
+        return df

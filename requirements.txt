@@ -5,3 +5,4 @@ xgboost
 pandas
 redis
 scikit-learn
+numpy

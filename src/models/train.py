@@ -1,42 +1,73 @@
 import pandas as pd
-import xgboost as xgb
-import pickle
 import os
+import pickle
+import xgboost as xgb
+from src.features.build_features import FeatureEnricher
+from src.utils.logger import get_logger
 
-def train_and_save_model():
-    """Loads engineered data, trains the XGBoost algorithm, and serializes the model."""
+logger = get_logger(__name__)
 
-    # 1. Load the fully engineered training dataset
-    print("Loading engineered data...")
-    data_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/processed/train_engineered.csv'))
-    df = pd.read_csv(data_path)
-    X = df.select_dtypes(include=['number', 'bool'])
+def train_model():
+    # 1. Load Data
+    print("Loading data...")
+    # noinspection PyTypeChecker
+    df_trans = pd.read_csv("data/raw/train_transaction.csv")
+    # noinspection PyTypeChecker
+    df_id = pd.read_csv("data/raw/train_identity.csv")
+
+    # 2. Merge Data (Left Join)
+    # We join on 'TransactionID' so every transaction remains in the set
+    print("Merging transaction and identity data...")
+    df = df_trans.merge(df_id, on="TransactionID", how="left")
+
+    # 3. Instantiate FeatureEnricher
+    # Now the enricher will see the full merged DataFrame
+    enricher = FeatureEnricher()
+    print("Engineering features...")
+    enriched_df = enricher.build_all_features(df)
+
+    non_numeric_cols = enriched_df.select_dtypes(exclude=['number', 'bool']).columns
+
+    if len(non_numeric_cols) > 0:
+        logger.warning(f"Dropping non-numeric columns that were not encoded: {list(non_numeric_cols)}")
+        enriched_df = enriched_df.drop(columns=non_numeric_cols)
+    # 4. Prepare X and y
+    # Selecting features (numeric/bool) to ensure model compatibility
+    X = enriched_df.select_dtypes(include=['number', 'bool'])
+    X = X.drop(columns=['isFraud'], errors='ignore')
     y = df['isFraud']
 
-    # 2. Instantiate the XGBoost algorithm
-    print("Initializing XGBoost...")
-    model = xgb.XGBClassifier(
-        n_estimators=100,
-        max_depth=5,
-        learning_rate=0.1,
-        random_state=42
-    )
+    print("Training XGBoost model with class balancing...")
 
-    # 3. Train the model
-    print("Training the model...")
+    ratio = float(y.value_counts()[0]/y.value_counts()[0])
+    # 5. Train Model
+    print("Training XGBoost model...")
+    model = xgb.XGBClassifier(n_estimators=100,
+                              max_depth=6,
+                              scale_pos_weight=ratio)
     model.fit(X, y)
 
-    # 4. Serialize the trained model artifact
-    save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'saved_models'))
-    os.makedirs(save_dir, exist_ok=True)
-    file_path = os.path.join(save_dir, 'xgboost_fraud_model.pkl')
+    # Get feature importances
+    importance = model.feature_importances_
+    feature_names = X.columns
+    feature_importance_df = pd.DataFrame({'feature': feature_names, 'importance': importance})
+    feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False)
 
-    print(f"Serializing model artifact to {file_path}...")
-    with open(file_path, 'wb') as file:
-         pickle.dump(model, file)
+    print("\n--- Top 10 Features Used by the Model ---")
+    print(feature_importance_df.head(10))
 
-    print("Model serialization complete.")
+    # 6. Save Artifacts
+    save_path = "src/models/saved_models/xgboost_fraud_model.pkl"
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-# Execution guard
+    # Using atomic save pattern
+    tmp_path = save_path + ".tmp"
+    with open(tmp_path, "wb") as f:
+        pickle.dump(model, f)
+    os.replace(tmp_path, save_path)
+
+    print(f"Model saved to {save_path}")
+
 if __name__ == "__main__":
-    train_and_save_model()
+    train_model()

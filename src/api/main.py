@@ -1,74 +1,67 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
 import pandas as pd
 import pickle
-import os
-import sys
-
-# Ensure the src directory is in the system path for relative imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-from src.features.build_features import FeatureEnricher
+import uvicorn
+from fastapi import FastAPI
 from src.api.schemas import TransactionRequest
+from src.features.build_features import FeatureEnricher
+from src.utils.logger import get_logger
 
-# 1. Initialize the FastAPI application
+# Initialize logger
+logger = get_logger(__name__)
+
+# Initialize FastAPI app
 app = FastAPI(title="Fraud Detection API")
 
-# 2. Define the path to your serialized artifacts
-current_dir = os.path.dirname(__file__)
-model_dir = os.path.abspath(os.path.join(current_dir, '../models/saved_models'))
+# Load artifacts (The "Brain" and the "Mapper")
+# These are loaded once at startup to ensure high performance during requests
+MODEL_PATH = "src/models/saved_models/xgboost_fraud_model.pkl"
+ENCODER_PATH = "src/models/saved_models/target_encode_maps.pkl"
 
-maps_path = os.path.join(model_dir, 'target_encode_maps.pkl')
-model_path = os.path.join(model_dir, 'xgboost_fraud_model.pkl')
+logger.info("Loading model artifacts...")
+with open(MODEL_PATH, "rb") as f:
+    fraud_model = pickle.load(f)
 
-# 3. Load the artifacts into active memory
-print("Loading historical data mappings...")
-with open(maps_path, 'rb') as file:
-    loaded_maps = pickle.load(file)
+with open(ENCODER_PATH, "rb") as f:
+    target_encode_maps = pickle.load(f)
 
-print("Loading XGBoost model artifact...")
-with open(model_path, 'rb') as file:
-    fraud_model = pickle.load(file)
-
-# Instantiate the feature engineering blueprint
+# Instantiate the FeatureEnricher
 enricher = FeatureEnricher()
-enricher.target_encode_maps = loaded_maps
+logger.info("Artifacts loaded and FeatureEnricher initialized.")
 
-# 4. Define a basic health-check endpoint
-@app.get("/")
-def health_check():
-    return {"status": "Active", "message": "Fraud Detection API is running and enriched."}
-
-# 5. Define the core prediction endpoint
 @app.post("/predict")
 def predict_fraud(transaction: TransactionRequest):
     """
-    Receives a live transaction, enforces validation, engineers features,
-    and returns a calculated fraud probability score.
+    Receives a transaction, processes features, and returns a fraud risk score.
     """
+    logger.info(f"Received transaction for Card ID: {transaction.card1}")
 
-    # Extract data and convert to a Pandas DataFrame
-    transaction_dict = transaction.model_dump()
-    df = pd.DataFrame([transaction_dict])
-
-    # Execute the orchestration method to engineer features
+    # 1. Pipeline: Feature Engineering
+    df = pd.DataFrame([transaction.model_dump()])
     enriched_df = enricher.build_all_features(df)
 
-    # Apply the same strict mathematical filter we used during training
+    # 2. Pipeline: Data Alignment
+    # Filter for numeric features and reindex to match training column order
     X_live = enriched_df.select_dtypes(include=['number', 'bool'])
+    expected_cols = fraud_model.get_booster().feature_names
+    X_live = X_live.reindex(columns=expected_cols, fill_value=0)
 
-    expected_columns = fraud_model.get_booster().feature_names
-    X_live = X_live.reindex(columns=expected_columns)
+    # 3. Pipeline: Inference
+    fraud_probability = float(fraud_model.predict_proba(X_live.values)[0][1])
 
-    raw_matrix = X_live.values
-    # Execute real-time inference
-    # .predict_proba() returns a nested array: [[probability_of_0, probability_of_1]]
-    fraud_probability = float(fraud_model.predict_proba(raw_matrix)[0][1])
-
-    # Define a basic business logic threshold
+    # 4. Pipeline: Business Logic
     risk_level = "High" if fraud_probability > 0.5 else "Low"
+
+    # Log outcome for audit trail
+    if risk_level == "High":
+        logger.warning(f"BLOCKED: Fraud Score {fraud_probability:.4f} for Card {transaction.card1}")
+    else:
+        logger.info(f"APPROVED: Fraud Score {fraud_probability:.4f} for Card {transaction.card1}")
 
     return {
         "status": "success",
         "fraud_probability": round(fraud_probability, 4),
         "risk_level": risk_level
     }
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
