@@ -1,67 +1,92 @@
-import pandas as pd
+from fastapi import FastAPI, HTTPException
 import pickle
-import uvicorn
-from fastapi import FastAPI
-from src.api.schemas import TransactionRequest
+from contextlib import asynccontextmanager
+from src.api.schemas import TransactionInput, FraudPredictionResponse
 from src.features.build_features import FeatureEnricher
+from src.features.redis_client import RedisClient
 from src.utils.logger import get_logger
+from typing import Any, Optional
+
+model: Any = None
+enricher: Optional[Any] = None
+EXPECTED_COLS: Optional[list] = None
 
 # Initialize logger
 logger = get_logger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(title="Fraud Detection API")
+# Our optimized business gatekeeper metric
+CUSTOMER_PRECISION_THRESHOLD = 0.85
 
-# Load artifacts (The "Brain" and the "Mapper")
-# These are loaded once at startup to ensure high performance during requests
-MODEL_PATH = "src/models/saved_models/xgboost_fraud_model.pkl"
-ENCODER_PATH = "src/models/saved_models/target_encode_maps.pkl"
-
-logger.info("Loading model artifacts...")
-with open(MODEL_PATH, "rb") as f:
-    fraud_model = pickle.load(f)
-
-with open(ENCODER_PATH, "rb") as f:
-    target_encode_maps = pickle.load(f)
-
-# Instantiate the FeatureEnricher
-enricher = FeatureEnricher()
-logger.info("Artifacts loaded and FeatureEnricher initialized.")
-
-@app.post("/predict")
-def predict_fraud(transaction: TransactionRequest):
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     """
-    Receives a transaction, processes features, and returns a fraud risk score.
+    Modern FastAPI lifespan context manager.
+    Replaces the deprecated @app.on_event("startup").
+    Loads the heavy ML models into RAM before the server accepts requests.
     """
-    logger.info(f"Received transaction for Card ID: {transaction.card1}")
+    global model, enricher, EXPECTED_COLS
+    logger.info("Initializing API and loading machine learning artifacts...")
 
-    # 1. Pipeline: Feature Engineering
-    df = pd.DataFrame([transaction.model_dump()])
-    enriched_df = enricher.build_all_features(df)
+    try:
+        # 1. Load the XGBoost Brain
+        with open("src/models/saved_models/xgboost_fraud_model.pkl", "rb") as f:
+            model = pickle.load(f)
 
-    # 2. Pipeline: Data Alignment
-    # Filter for numeric features and reindex to match training column order
-    X_live = enriched_df.select_dtypes(include=['number', 'bool'])
-    expected_cols = fraud_model.get_booster().feature_names
-    X_live = X_live.reindex(columns=expected_cols, fill_value=0)
+        # Capture the exact mathematical order of columns the model expects
+        EXPECTED_COLS = model.get_booster().feature_names
 
-    # 3. Pipeline: Inference
-    fraud_probability = float(fraud_model.predict_proba(X_live.values)[0][1])
+        # 2. Load the Feature Pipeline (automatically loads target encodings)
+        enricher = FeatureEnricher()
 
-    # 4. Pipeline: Business Logic
-    risk_level = "High" if fraud_probability > 0.5 else "Low"
+        logger.info("All artifacts loaded successfully. API is ready to serve.")
+    except Exception as e:
+        logger.error(f"Failed to load artifacts: {e}")
+        raise RuntimeError("Could not boot API. Missing ML artifacts.")
 
-    # Log outcome for audit trail
-    if risk_level == "High":
-        logger.warning(f"BLOCKED: Fraud Score {fraud_probability:.4f} for Card {transaction.card1}")
-    else:
-        logger.info(f"APPROVED: Fraud Score {fraud_probability:.4f} for Card {transaction.card1}")
+    yield # This yields control back to FastAPI to run the server
 
-    return {
-        "status": "success",
-        "fraud_probability": round(fraud_probability, 4),
-        "risk_level": risk_level
-    }
+    # Optional: Any cleanup code for when the server shuts down goes here
+    logger.info("Shutting down API and cleaning up resources.")
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Initialize FastAPI application with the lifespan manager
+app = FastAPI(
+    title="Real-Time Fraud Detection API",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+@app.post("/predict", response_model=FraudPredictionResponse)
+async def predict_fraud(transaction: TransactionInput):
+    """
+    The primary endpoint. Accepts a transaction, processes it, and returns a decision.
+    """
+    try:
+        # Pipeline: Feature Engineering
+        history = RedisClient.get_history(f"card:{transaction.card1}")
+        enriched_features = enricher.build_all_features(transaction, history)
+
+        # 3. Data Sanitization & Alignment
+        X = enriched_features.select_dtypes(include=['number', 'bool'])
+        X = X.reindex(columns=EXPECTED_COLS, fill_value=0)
+
+        # 4. Predict
+        probability = float(model.predict_proba(X.values)[0, 1])
+
+        RedisClient.save_transaction(key = f"card:{transaction.card1}",
+                                     value = transaction.model_dump())
+        # 5. Apply the Business Gatekeeper Threshold
+        is_fraud = int(probability >= CUSTOMER_PRECISION_THRESHOLD)
+        status = "BLOCKED" if is_fraud else "APPROVED"
+
+        # 6. Return the strictly formatted response
+        return FraudPredictionResponse(
+            transaction_id=transaction.TransactionID,
+            is_fraud=is_fraud,
+            fraud_probability=round(probability, 4),
+            decision_threshold=CUSTOMER_PRECISION_THRESHOLD,
+            status=status
+        )
+
+    except Exception as e:
+        logger.error(f"Prediction error occurred: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during prediction sequence.")

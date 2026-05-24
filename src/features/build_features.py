@@ -1,4 +1,3 @@
-import pandas as pd
 import redis
 import os
 import pickle
@@ -23,8 +22,9 @@ class FeatureEnricher:
             self.redis_client.ping()
             self.redis_available = True
             logger.info("FeatureEnricher: Redis connection established.")
-        except Exception:
+        except redis.ConnectionError:
             logger.warning("FeatureEnricher: Redis unavailable. Fallback to velocity=0.")
+            self.redis_available = False
 
         # 2. Load Target Encoding Mappings
         try:
@@ -35,7 +35,8 @@ class FeatureEnricher:
             logger.warning("FeatureEnricher: Target encoding maps not found. Encoding will be skipped.")
             self.target_maps = {}
 
-    def add_time_features(self, df):
+    @staticmethod
+    def add_time_features(df):
         df = df.copy()
         df['hour_of_day'] = (df['TransactionDT'] // 3600) % 24
         df['day_of_week'] = (df['TransactionDT'] // (3600 * 24)) % 7
@@ -47,7 +48,8 @@ class FeatureEnricher:
         try:
             val = self.redis_client.get(f"velocity_{card_id}")
             return int(val) if val else 0
-        except Exception:
+        except (redis.exceptions.RedisError, ValueError) as e:
+            logger.warning(f"Could not get velocity for {card_id}: {e}")
             return 0
 
     def apply_target_encoding(self, df):

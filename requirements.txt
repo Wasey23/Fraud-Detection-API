@@ -6,3 +6,6 @@ pandas
 redis
 scikit-learn
 numpy
+booktype
+matplotlib
+requests

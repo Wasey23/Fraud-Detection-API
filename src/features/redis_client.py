@@ -1,15 +1,17 @@
+# src/features/redis_client.py
 import redis
-import os
+import json
 
-# We use environment variables for production configuration
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+class RedisClient:
+    def __init__(self, host='localhost', port=6379, db=0):
+        # We use a connection pool to manage resource efficiency
+        self.pool = redis.ConnectionPool(host=host, port=port, db=db)
+        self.client = redis.Redis(connection_pool=self.pool)
 
-def get_redis_client():
-    """Establishes a connection to the Redis server."""
-    return redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        db=0,
-        decode_responses=True
-    )
+    def save_transaction(self, key: str, value: dict):
+        # Save transaction with an expiry (e.g., 24 hours) to keep memory clean
+        self.client.setex(key, 86400, json.dumps(value))
+
+    def get_history(self, key):
+        data = self.client.get(key)
+        return json.loads(data) if data else []
