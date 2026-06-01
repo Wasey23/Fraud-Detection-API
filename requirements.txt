@@ -3,9 +3,8 @@ uvicorn[standard]
 pydantic
 xgboost
 pandas
-redis
+redis>=5.0.0
 scikit-learn
 numpy
-booktype
 matplotlib
 requests
