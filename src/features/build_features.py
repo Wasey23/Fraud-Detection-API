@@ -1,4 +1,7 @@
-import redis
+# noinspection PyPackageRequirements
+from redis import Redis
+# noinspection PyPackageRequirements
+from redis import RedisError
 import os
 import pickle
 from src.utils.logger import get_logger
@@ -18,11 +21,11 @@ class FeatureEnricher:
         self.redis_available = False
 
         try:
-            self.redis_client = redis.Redis(host=self.redis_host, port=self.redis_port, db=0)
+            self.redis_client = Redis(host=self.redis_host, port=self.redis_port, db=0)
             self.redis_client.ping()
             self.redis_available = True
             logger.info("FeatureEnricher: Redis connection established.")
-        except redis.ConnectionError:
+        except RedisError:
             logger.warning("FeatureEnricher: Redis unavailable. Fallback to velocity=0.")
             self.redis_available = False
 
@@ -48,7 +51,7 @@ class FeatureEnricher:
         try:
             val = self.redis_client.get(f"velocity_{card_id}")
             return int(val) if val else 0
-        except (redis.exceptions.RedisError, ValueError) as e:
+        except (RedisError, ValueError) as e:
             logger.warning(f"Could not get velocity for {card_id}: {e}")
             return 0
 
@@ -64,7 +67,7 @@ class FeatureEnricher:
                 df[col] = df[col].map(mapping).fillna(0)
         return df
 
-    def build_all_features(self, df):
+    def build_all_features(self, df, history=None):
         """
         Orchestrator for all feature engineering steps.
         """
@@ -77,4 +80,13 @@ class FeatureEnricher:
         # 3. Apply Target Encoding
         df = self.apply_target_encoding(df)
 
+        if history is not None:
+            df['velocity_count_24h'] = len(history)
+        else:
+            df['velocity_count_24h'] = 0
+
         return df
+
+
+
+
