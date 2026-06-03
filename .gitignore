@@ -1,4 +1,6 @@
 data/
-venv/
+.venv/
 __pycache__/
 .ipynb_checkpoints/data/
+.idea/
+*.csv/
