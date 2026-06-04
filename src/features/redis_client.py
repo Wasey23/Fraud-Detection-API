@@ -21,7 +21,9 @@ class RedisClient:
         Caches a serialized transaction payload with a 24-hour expiration window.
         """
         try:
-            cls._client.setex(key, 86400, json.dumps(value))
+            cls._client.rpush(key, json.dumps(value))
+            cls._client.ltrim(key, -250, -1)
+            cls._client.expire(key, 86400)
         except Exception as e:
             logger.warning(f"Redis write error for key {key}: {e}")
 
@@ -31,8 +33,8 @@ class RedisClient:
         Retrieves historical transaction records bound to a specific transaction key.
         """
         try:
-            data = cls._client.get(key)
-            return json.loads(data) if data else []
+            raw_data = cls._client.lrange(key, 0, -1)
+            return [json.loads(d) for d in raw_data] if raw_data else []
         except Exception as e:
             logger.warning(f"Redis read error for key {key}: {e}")
             return []

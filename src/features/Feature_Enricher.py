@@ -29,7 +29,7 @@ class FeatureEnricher:
             logger.warning("FeatureEnricher: Redis unavailable. Fallback to velocity=0.")
             self.redis_available = False
 
-        # 2. Load Target Encoding Mappings
+        # 2. Loading Target Encoding Mappings
         try:
             with open(mapping_path, "rb") as f:
                 self.target_maps = pickle.load(f)
@@ -62,8 +62,8 @@ class FeatureEnricher:
         df = df.copy()
         for col, mapping in self.target_maps.items():
             if col in df.columns:
-                # Map the categories to their pre-calculated values.
-                # Fill unknown categories with 0 to prevent crashes.
+                # Mapping the categories to their pre-calculated values.
+                # Filling unknown categories with 0 to prevent crashes.
                 df[col] = df[col].map(mapping).fillna(0)
         return df
 
@@ -71,22 +71,54 @@ class FeatureEnricher:
         """
         Orchestrator for all feature engineering steps.
         """
-        # 1. Apply Time Features
+        print(f"DEBUG: History received with length {len(history) if history else 0}")
+        # Applying Time Features
         df = self.add_time_features(df)
 
-        # 2. Apply Redis Velocity Features
-        df['card1_velocity_10min'] = df['card1'].apply(self.get_velocity)
-
-        # 3. Apply Target Encoding
+        # Applying Target Encoding
         df = self.apply_target_encoding(df)
 
-        if history is not None:
-            df['velocity_count_24h'] = len(history)
+        if history is not None and len(history) > 0:
+            # We use a lambda to apply our calculation to every row in the dataframe
+            df['card_velocity_10min'] = df.apply(
+                lambda row: self._calculate_velocity_from_history(
+                    row['TransactionDT'],
+                    row['card1'],
+                    history,
+                    600
+                ), axis=1
+            )
+
+            df['velocity_count_24h'] = df.apply(
+                lambda row: self._calculate_velocity_from_history(
+                    row['TransactionDT'],
+                    row['card1'],
+                    history,
+                    86400
+                ), axis=1
+            )
         else:
+            # Fallback if no history is provided (e.g., first transaction ever)
+            df['card_velocity_10min'] = 0
             df['velocity_count_24h'] = 0
 
         return df
 
+    @staticmethod
+    def _calculate_velocity_from_history(current_dt, card_id, history, window_seconds):
+        """
+        Calculates how many times a card appeared in the history
+        within the last 600 seconds (10 minutes).
+        """
+        window_start = current_dt - window_seconds
 
+        # Count transactions in history that match the card_id
+        # and fall within the 10-minute time window
+        recent_tx = [
+            tx for tx in history
+            if tx['card1'] == card_id
+            and window_start <= tx['TransactionDT'] <= current_dt
+        ]
+        return len(recent_tx)
 
 

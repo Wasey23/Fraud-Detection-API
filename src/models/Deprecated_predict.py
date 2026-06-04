@@ -1,9 +1,13 @@
+'''
+THIS FILE IS MARKED FOR DELETION AT A LATER DATE
+'''
+
 import pandas as pd
 import numpy as np
 import pickle
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import precision_score, recall_score, f1_score
-from src.features.build_features import FeatureEnricher
+from src.features.Feature_Enricher import FeatureEnricher
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -68,7 +72,6 @@ def run_evaluation_and_prediction(csv_path):
     y_prob = model.predict_proba(X.values)[:, 1]
 
     sweep_df = sweep_thresholds(df['isFraud'], y_prob)
-    sweep_df.to_csv("threshold_analysis.csv", index=False)
     print(sweep_df)
 
     # 4. Evaluation (Assuming 'isFraud' column exists in your data)
@@ -77,11 +80,7 @@ def run_evaluation_and_prediction(csv_path):
     else:
         logger.warning("No 'isFraud' column found. Skipping evaluation.")
 
-    # 5. Output Sample
-    print("\n--- Sample Predictions (First 5) ---")
-    print(y_prob[:5])
-
 if __name__ == "__main__":
-    # Point this to your training/test data
+    # Point this to the training/test data
     run_evaluation_and_prediction("data/raw/train_transaction.csv")
 

@@ -3,7 +3,7 @@ import pickle
 import pandas as pd
 from contextlib import asynccontextmanager
 from src.api.schemas import TransactionInput, FraudPredictionResponse
-from src.features.build_features import FeatureEnricher
+from src.features.Feature_Enricher import FeatureEnricher
 from src.features.redis_client import RedisClient
 from src.utils.logger import get_logger
 from typing import Any, Optional
@@ -16,7 +16,7 @@ EXPECTED_COLS: Optional[list] = None
 logger = get_logger(__name__)
 
 # Optimized business threshold
-CUSTOMER_PRECISION_THRESHOLD = 0.85
+CUSTOMER_PRECISION_THRESHOLD = 0.10
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -75,7 +75,7 @@ async def predict_fraud(transaction: TransactionInput):
         df = pd.DataFrame([transaction.model_dump()])
 
         # 3. Pipeline: Feature Engineering
-        enriched_features = enricher.build_all_features(df, history)
+        enriched_features = enricher.build_all_features(df, history=history)
 
         # 4. Data Sanitization & Alignment
         X = enriched_features.select_dtypes(include=['number', 'bool'])

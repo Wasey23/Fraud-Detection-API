@@ -1,5 +1,5 @@
 import pandas as pd
-from src.features.build_features import FeatureEnricher
+from src.features.Feature_Enricher import FeatureEnricher
 
 def test_feature_enricher_output_shape():
     """Validates that the enricher adds expected columns to the DataFrame."""
