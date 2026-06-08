@@ -46,7 +46,6 @@ async def lifespan(_app: FastAPI):
 
     yield # This yields control back to FastAPI to run the server
 
-    # Any cleanup code for when the server shuts down goes here
     logger.info("Shutting down API and cleaning up resources.")
 
 # Initializing FastAPI application with the lifespan manager
