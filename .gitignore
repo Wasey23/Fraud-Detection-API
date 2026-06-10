@@ -3,5 +3,5 @@ data/
 __pycache__/
 .ipynb_checkpoints/data/
 .idea/
-*.csv/
-/threshold_analysis.csv
+*.csv
+
