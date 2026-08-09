@@ -3,7 +3,7 @@ name: Fraud Detection API CI/CD
 # Trigger the workflow on every push or pull request to the main branch
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "new_model_experiment" ]
   pull_request:
     branches: [ "main" ]
 
