@@ -1,40 +1,49 @@
 # Real-Time Fraud Detection API
 
-An end-to-end MLOps pipeline and production-grade machine learning system designed to detect fraudulent credit card transactions in real-time. This project bridges the gap between static data science research and live production systems by implementing a stateful inference architecture.
+An end-to-end Machine Learning API built to instantly evaluate credit card transactions and block fraudulent activity in milliseconds.
 
-## System Architecture
+## Purpose
+Credit card fraud costs businesses billions of dollars every year. The challenge isn't just catching the fraud; it's catching it **instantly** before the transaction goes through, without falsely declining legitimate customers. 
 
-Instead of a standard stateless model that evaluates transactions in a vacuum, this API utilizes an **XGBoost Classifier** backed by an ultra-fast **Redis** in-memory database to track user behavior over time.
+This project takes historical transaction data, trains intelligent Machine Learning models to spot the hidden patterns of thieves, and packages those models into a lightning-fast web server (API) that can handle high volumes of real-time traffic.
 
-- **Model:** XGBoost (Trained on the highly imbalanced IEEE-CIS dataset)
-- **Inference Server:** FastAPI / Uvicorn (Asynchronous framework for low-latency web requests)
-- **State Store:** Redis (Maintains real-time transaction history for feature engineering)
-- **Deployment:** Docker & Docker Compose
+---
+
+## How It Works 
+
+When a customer swipes their credit card, here is exactly what happens under the hood:
+
+1. **Data Ingestion:** The API receives a digital receipt (a JSON payload) containing raw transaction details (e.g., card type, amount, time).
+2. **Feature Enrichment (The "Translator"):** The raw data is passed through a custom `FeatureEnricher`. This pipeline instantly translates text (like "Visa" or "Debit") into math, and calculates historical metrics on the fly (e.g., "How many times has this card been used in the last 24 hours?").
+3. **Inference (The "Brain"):** The enriched math is handed to a pre-trained Machine Learning model.
+4. **The Decision:** In milliseconds, the model returns a risk probability, returning either an **`APPROVED`** or **`BLOCKED`** verdict to the merchant.
+
+---
 
 ## Key Engineering Achievements
 
-### 1. Stateful Feature Engineering (The Sliding Window)
-Fraud is dynamic, so the model must be dynamic. The API calculates "Card Velocity" (the number of transactions per card in the last 10 minutes) on the fly. Every incoming transaction is logged to a Redis list, allowing the model to detect high-frequency bot attacks that a stateless model would miss.
+### 1. Multi-Model Architecture (A/B Testing)
+To find the perfect balance between catching bad guys and keeping the system fast, this API hosts multiple algorithms simultaneously. Front-end systems can easily send identical data to different endpoints to race the models against each other:
+* **`/predict/xgboost`**: Routes the transaction to a highly precise, cautious **XGBoost** model. 
+* **`/predict/lightgbm`**: Routes the transaction to a blazingly fast, aggressive **LightGBM** model that casts a wider net for suspicious activity.
 
-### 2. Eliminating Training-Serving Skew
-A critical failure point in ML systems occurs when training logic differs from inference logic. This project utilizes an Object-Oriented `FeatureEnricher` class to guarantee that the vectorized Pandas math used during offline training perfectly mirrors the Redis-based math used during real-time online inference.
+### 2. Eliminating "Training-Serving Skew"
+A common issue in Machine Learning is that a model performs great in a lab but fails in the real world because the live data looks slightly different than the training data. 
+I built a unified, Object-Oriented `FeatureEnricher` class. This guarantees that the exact same data-cleaning steps used to train the models offline are perfectly mirrored when processing live, single-transaction web requests.
 
-### 3. Business Logic & Imbalanced Data
-Fraud detection is finding a "needle in a haystack." The model was evaluated using **AUPRC** (Area Under the Precision-Recall Curve) rather than standard accuracy. The API implements a strict business guardrail (`CUSTOMER_PRECISION_THRESHOLD = 0.10`), reflecting the asymmetric cost matrix of real-world banking where catching organized fraud justifies a lower probability threshold.
+### 3. Load Testing & Traffic Optimization
+To ensure the API doesn't crash during a Black Friday shopping rush, the system was stress-tested using **Locust** to simulate 50 users hitting the server at the exact same millisecond.
+* The models originally tried to use all available CPU power for every single request, causing traffic jams and massive delays (up to 13-second wait times).
+* The models were re-engineered to process linearly, and the API server was scaled horizontally using **Dockerized Worker Processes**, I added 4 workers. 
+* Response times dropped by over 70%, with 99% of all transactions successfully processed in under 2.3 seconds.
 
-### 4. Production Guardrails
-- **Memory Management:** Redis lists are strictly capped using `LTRIM` (max 250 records per card) to prevent Out-Of-Memory (OOM) crashes during aggressive botnet attacks.
-- **Atomic Model Updates:** The offline training pipeline (`train.py`) uses temporary files and atomic `os.replace` operations to ensure the live API never attempts to load a corrupted or partially saved `.pkl` artifact.
-- **Asynchronous Lifespan:** Machine learning artifacts are loaded into RAM once during the FastAPI startup lifespan, enabling millisecond-latency predictions.
+---
 
-## Getting Started
+## Quick Start 
 
-### Prerequisites
-- Docker and Docker Compose
-- Python 3.9+ (if running locally without Docker)
+Because this project is fully containerized with Docker, launching the server and its dependencies on your machine is seamless.
 
-### Installation & Execution
-1. Clone the repository:
-   ```bash
-   git clone [https://github.com/Wasey23/Fraud-Detection-API.git](https://github.com/Wasey23/Fraud-Detection-API.git)
-   cd Fraud-Detection-API
+**1. Clone the repository:**
+```bash
+git clone [https://github.com/wasey23/fraud-detection-api.git](https://github.com/wasey23/fraud-detection-api.git)
+cd fraud-detection-api
