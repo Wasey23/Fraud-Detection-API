@@ -7,18 +7,14 @@ Credit card fraud costs businesses billions of dollars every year. The challenge
 
 This project takes historical transaction data, trains intelligent Machine Learning models to spot the hidden patterns of thieves, and packages those models into a lightning-fast web server (API) that can handle high volumes of real-time traffic.
 
----
-
 ## How It Works 
 
 When a customer swipes their credit card, here is exactly what happens under the hood:
 
 1. **Data Ingestion:** The API receives a digital receipt (a JSON payload) containing raw transaction details (e.g., card type, amount, time).
-2. **Feature Enrichment (The "Translator"):** The raw data is passed through a custom `FeatureEnricher`. This pipeline instantly translates text (like "Visa" or "Debit") into math, and calculates historical metrics on the fly (e.g., "How many times has this card been used in the last 24 hours?").
-3. **Inference (The "Brain"):** The enriched math is handed to a pre-trained Machine Learning model.
+2. **Feature Enrichment:** The raw data is passed through a custom `FeatureEnricher`. This pipeline instantly translates text (like "Visa" or "Debit") into math, and calculates historical metrics on the fly (e.g., "How many times has this card been used in the last 24 hours?").
+3. **Inference:** The enriched math is handed to a pre-trained Machine Learning model.
 4. **The Decision:** In milliseconds, the model returns a risk probability, returning either an **`APPROVED`** or **`BLOCKED`** verdict to the merchant.
-
----
 
 ## Key Engineering Achievements
 
@@ -37,11 +33,11 @@ To ensure the API doesn't crash during a Black Friday shopping rush, the system 
 * The models were re-engineered to process linearly, and the API server was scaled horizontally using **Dockerized Worker Processes**, I added 4 workers. 
 * Response times dropped by over 70%, with 99% of all transactions successfully processed in under 2.3 seconds.
 
----
-
 ## Quick Start 
 
 Because this project is fully containerized with Docker, launching the server and its dependencies on your machine is seamless.
+
+**Prerequisites:** You must have [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running on your machine.
 
 **1. Clone the repository:**
 ```bash
