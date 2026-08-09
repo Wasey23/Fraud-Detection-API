@@ -1,6 +1,7 @@
 import requests
 
 URL = "http://localhost:8000/predict"
+
 sample_sus_transaction = {
     "TransactionID": 3663549,
     "TransactionDT": 86400,
@@ -16,14 +17,14 @@ sample_sus_transaction = {
     "R_emaildomain": "mail.com"
 }
 
-'''
+
 sample_safe_transaction = {
     "TransactionID": 9876543, 
     "TransactionDT": 86400, 
     "TransactionAmt": 45.00,      # Standard everyday purchase amount
     "ProductCD": "W",             # The most common, lowest-risk product category
-    "card1": 8888,                # A fresh card ID to ensure 0 initial velocity in Redis
-    "card2": 111.0, 
+    "card1": 17188,                # A fresh card ID to ensure 0 initial velocity in Redis
+    "card2": 321.0,
     "card3": 150.0, 
     "card4": "visa",              # Standard, highly trusted issuer
     "card5": 226.0, 
@@ -31,13 +32,19 @@ sample_safe_transaction = {
     "P_emaildomain": "gmail.com", # Highly trusted standard email provider
     "R_emaildomain": "gmail.com"
 }
-'''
+
+simulation_mode = 'fraud'
+
+if simulation_mode == 'legit':
+    payload = sample_safe_transaction
+else:
+    payload = sample_sus_transaction
 
 def run_simulation(iterations):
     start_dt = 86400
     for i in range(iterations):
         # Create a dynamic transaction that changes over time
-        tx = sample_sus_transaction.copy()
+        tx = payload.copy()
         # tx = sample_safe_transaction.copy()
         tx['TransactionDT'] = start_dt + (i * 10) # Advance time by 10 seconds each run
         tx['TransactionID'] = 3663549 + i
@@ -50,4 +57,4 @@ def run_simulation(iterations):
             print(f"Prob: {data['fraud_probability']}, Status: {data['status']}")
 
 if __name__ == "__main__":
-    run_simulation(100)
+    run_simulation(30)
