@@ -4,6 +4,7 @@ import os
 import pickle
 import gc
 import xgboost as xgb
+import lightgbm as lgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score, average_precision_score, classification_report
 from src.features.Feature_Enricher import FeatureEnricher
@@ -137,7 +138,7 @@ def train_model():
     ratio = float(y_train.value_counts()[0] / y_train.value_counts()[1])
     logger.info(f"Scale positive weight set to: {ratio:.2f}")
 
-    # 5. Train Model
+    # 5. Train XGBoost Model
     logger.info("Training XGBoost model...")
     model = xgb.XGBClassifier(
         n_estimators=300,
@@ -150,6 +151,19 @@ def train_model():
         random_state=42
     )
     model.fit(X_train, y_train)
+
+    # Train LightGBM Model
+    logger.info("Training LightGBM model...")
+
+    lgb_model = lgb.LGBMClassifier(
+        n_estimators=300,
+        learning_rate=0.1,
+        max_depth=6,
+        scale_pos_weight=ratio,
+        random_state=42,
+        num_threads=1
+    )
+    lgb_model.fit(X_train, y_train)
 
     # 6. Evaluate Model on Holdout Set
     logger.info("Running predictions on the holdout test set...")
@@ -170,6 +184,7 @@ def train_model():
     X_train_lean, dropped_list = drop_dead_weight(model, X_train)
     print("List of Features Dropped")
     print(dropped_list)
+
     # 8. Quality Gate
     final_auprc = average_precision_score(y_test, y_prob)
     BUSINESS_THRESHOLD = 0.50
@@ -195,6 +210,11 @@ def train_model():
         print(f"\nClassification Report")
         print(classification_report(y_test, y_pred_default, zero_division=0))
         logger.warning(f"FAILURE: Model rejected. AUPRC ({final_auprc:.4f}) or Recall ({final_recall:.4f}) failed to meet requirements.")
+
+    lgb_save_path = "src/models/saved_models/lightgbm_fraud_model.pkl"
+    with open(lgb_save_path, "wb") as f:
+        pickle.dump(model, f)
+    logger.info(f"LGBM Model successfully saved to {lgb_save_path}")
 
 if __name__ == '__main__':
     train_model()
