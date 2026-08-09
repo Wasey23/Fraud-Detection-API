@@ -140,7 +140,7 @@ def train_model():
 
     # 5. Train XGBoost Model
     logger.info("Training XGBoost model...")
-    model = xgb.XGBClassifier(
+    xgb_model = xgb.XGBClassifier(
         n_estimators=300,
         learning_rate=0.1,
         max_depth=6,
@@ -150,7 +150,7 @@ def train_model():
         scale_pos_weight=ratio,
         random_state=42
     )
-    model.fit(X_train, y_train)
+    xgb_model.fit(X_train, y_train)
 
     # Train LightGBM Model
     logger.info("Training LightGBM model...")
@@ -167,7 +167,7 @@ def train_model():
 
     # 6. Evaluate Model on Holdout Set
     logger.info("Running predictions on the holdout test set...")
-    y_prob = model.predict_proba(X_test)[:, 1]
+    y_prob = xgb_model.predict_proba(X_test)[:, 1]
 
     logger.info("Evaluating thresholds...")
     sweep_df = sweep_thresholds(y_test, y_prob)
@@ -175,13 +175,13 @@ def train_model():
     print(sweep_df.to_string(index=False))
 
     # 7. Feature Importance
-    importance = model.feature_importances_
+    importance = xgb_model.feature_importances_
     feature_importance_df = pd.DataFrame({'feature': X.columns, 'importance': importance})
     feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False)
     print("\n--- Top 10 Features Used by the Model ---")
     print(feature_importance_df.head(30).to_string(index=False))
 
-    X_train_lean, dropped_list = drop_dead_weight(model, X_train)
+    X_train_lean, dropped_list = drop_dead_weight(xgb_model, X_train)
     print("List of Features Dropped")
     print(dropped_list)
 
@@ -200,7 +200,7 @@ def train_model():
 
         temp_path = save_path + ".tmp"
         with open(temp_path, "wb") as f:
-            pickle.dump(model, f)
+            pickle.dump(xgb_model, f)
         os.replace(temp_path, save_path)
 
         print(f"\nClassification Report")
@@ -213,7 +213,7 @@ def train_model():
 
     lgb_save_path = "src/models/saved_models/lightgbm_fraud_model.pkl"
     with open(lgb_save_path, "wb") as f:
-        pickle.dump(model, f)
+        pickle.dump(lgb_model, f)
     logger.info(f"LGBM Model successfully saved to {lgb_save_path}")
 
 if __name__ == '__main__':
