@@ -45,5 +45,6 @@ Because this project is fully containerized with Docker, launching the server an
 
 **1. Clone the repository:**
 ```bash
-git clone [https://github.com/wasey23/fraud-detection-api.git](https://github.com/wasey23/fraud-detection-api.git)
-cd fraud-detection-api
+git clone https://github.com/Wasey23/Fraud-Detection-API.git
+cd Fraud-Detection-API
+
